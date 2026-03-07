@@ -3,12 +3,27 @@ const express = require('express');
 const axios = require('axios');
 const { createClient } = require('@supabase/supabase-js');
 const { Resend } = require('resend');
+const multer = require('multer');
 
 const app = express();
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf.toString('utf8');
+  },
+}));
 app.use(express.urlencoded({ extended: true }));
 
-const { CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY, APP_URL } = process.env;
+const {
+  CLIENT_ID,
+  CLIENT_SECRET,
+  REDIRECT_URI,
+  SUPABASE_URL,
+  SUPABASE_KEY,
+  RESEND_API_KEY,
+  RESEND_WEBHOOK_SECRET,
+  APP_URL,
+  RESEND_FROM_EMAIL,
+} = process.env;
 const TENANT = 'common';
 const SCOPES = 'https://graph.microsoft.com/User.Read https://graph.microsoft.com/MailboxSettings.ReadWrite offline_access';
 
@@ -17,13 +32,15 @@ const resend = new Resend(RESEND_API_KEY);
 
 // --- Step 1: Start OAuth flow ---
 app.get('/start', (req, res) => {
+  const hint = req.query.hint ? `&login_hint=${encodeURIComponent(req.query.hint)}` : '';
   const authUrl =
     `https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/authorize` +
     `?client_id=${CLIENT_ID}` +
     `&response_type=code` +
     `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
     `&scope=${encodeURIComponent(SCOPES)}` +
-    `&response_mode=query`;
+    `&response_mode=query` +
+    hint;
 
   res.redirect(authUrl);
 });
@@ -66,21 +83,25 @@ app.get('/auth/callback', async (req, res) => {
     const email = meRes.data.mail || meRes.data.userPrincipalName;
     const timezone = mailboxRes.data.timeZone;
 
+    const userRecord = { email, timezone, access_token, refresh_token, active: true };
     const { error: dbError } = await supabase.from('users').upsert(
-      { email, timezone, access_token, refresh_token, active: true },
+      userRecord,
       { onConflict: 'email' }
     );
     if (dbError) throw new Error(`DB error: ${dbError.message}`);
     console.log(`Saved to DB: ${email} | Timezone: ${timezone}`);
 
+    const { start, end } = await getNextShabbatWindow(timezone);
+    await setAutoResponder(access_token, start, end, email);
+    console.log(`Initial Shabbat window scheduled for ${email}: ${start} → ${end}`);
+
     res.send(`
-      <h2>Shabbat Mode Authorized</h2>
+      <h2>Pause for Shabbat is Active</h2>
       <p><strong>Email:</strong> ${email}</p>
       <p><strong>Timezone:</strong> ${timezone}</p>
-      <br>
-      <a href="/trigger?email=${encodeURIComponent(email)}">
-        <button>Test: Schedule Shabbat autoresponder now</button>
-      </a>
+      <p><strong>Next start:</strong> ${new Date(start).toLocaleString()}</p>
+      <p><strong>Next end:</strong> ${new Date(end).toLocaleString()}</p>
+      <p>Your Outlook automatic replies are scheduled. Nothing else is required.</p>
     `);
   } catch (err) {
     const detail = err.response?.data || err.message;
@@ -113,28 +134,35 @@ app.get('/trigger', async (req, res) => {
   }
 });
 
-// --- POST /webhook/inbound: receives inbound email from SendGrid ---
-app.post('/webhook/inbound', async (req, res) => {
-  // SendGrid sends multipart form — 'from' field contains sender address
-  const raw = req.body.from || req.body.sender || '';
-  // Strip display name if present: "Josh Franklin <josh@jcoh.org>" → josh@jcoh.org
-  const match = raw.match(/<(.+?)>/) || [null, raw];
-  const senderEmail = match[1].trim();
+// --- POST /webhook/inbound: receives inbound email from SendGrid Inbound Parse ---
+app.post('/webhook/inbound', multer().none(), async (req, res) => {
+  try {
+    const rawSender = req.body.from || '';
+    const match = rawSender.match(/<(.+?)>/) || [null, rawSender];
+    const senderEmail = (match[1] || rawSender).trim();
 
-  console.log(`Inbound setup request from: ${senderEmail}`);
+    if (!senderEmail) {
+      console.error('Inbound webhook missing sender email');
+      return res.status(400).send('Missing sender email');
+    }
 
-  const oauthUrl =
-    `${APP_URL}/start?hint=${encodeURIComponent(senderEmail)}`;
+    console.log(`Inbound setup request from: ${senderEmail}`);
 
-  await resend.emails.send({
-    from: 'Pause for Shabbat <onboarding@resend.dev>',
-    to: senderEmail,
-    subject: 'One click to enable Shabbat Mode',
-    text: `Hi,\n\nThanks for reaching out.\n\nClick the link below to connect your Outlook account and enable automatic Shabbat replies:\n\n${oauthUrl}\n\nOnce you authorize, Pause for Shabbat will automatically enable your out-of-office every Friday at sunset and disable it Saturday night — every week, forever.\n\nShabbat Shalom,\nPause for Shabbat`,
-  });
+    const oauthUrl = `${APP_URL}/start?hint=${encodeURIComponent(senderEmail)}`;
 
-  console.log(`OAuth link sent to ${senderEmail}`);
-  res.sendStatus(200); // SendGrid expects a 200 or it will retry
+    await resend.emails.send({
+      from: RESEND_FROM_EMAIL || 'Pause for Shabbat <onboarding@resend.dev>',
+      to: senderEmail,
+      subject: 'One click to enable Shabbat Mode',
+      text: `Hi,\n\nThanks for reaching out.\n\nClick the link below to connect your Outlook account and enable automatic Shabbat replies:\n\n${oauthUrl}\n\nOnce you authorize, Pause for Shabbat will automatically enable your out-of-office every Friday at sunset and disable it Saturday night — every week, forever.\n\nShabbat Shalom,\nPause for Shabbat`,
+    });
+
+    console.log(`OAuth link sent to ${senderEmail}`);
+    return res.sendStatus(200);
+  } catch (err) {
+    console.error('Inbound webhook error:', err.message);
+    return res.status(400).send('Invalid webhook');
+  }
 });
 
 // ---------------------------------------------------------------------------
