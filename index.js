@@ -176,6 +176,8 @@ Activate it here, and take some time to pause this weekend.
 
 ${oauthUrl}
 
+Clicking the link will take you to Microsoft to authorize Pause for Shabbat to update your Outlook out-of-office settings. That's the only permission we request — we never read your email or contacts.
+
 Best,
 Rabbi Josh Franklin`,
     });
