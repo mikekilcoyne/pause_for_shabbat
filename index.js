@@ -153,8 +153,31 @@ app.post('/webhook/inbound', multer().none(), async (req, res) => {
     await resend.emails.send({
       from: RESEND_FROM_EMAIL || 'Pause for Shabbat <onboarding@resend.dev>',
       to: senderEmail,
-      subject: 'One click to enable Shabbat Mode',
-      text: `Hi,\n\nThanks for reaching out.\n\nClick the link below to connect your Outlook account and enable automatic Shabbat replies:\n\n${oauthUrl}\n\nOnce you authorize, Pause for Shabbat will automatically enable your out-of-office every Friday at sunset and disable it Saturday night — every week, forever.\n\nShabbat Shalom,\nPause for Shabbat`,
+      subject: "Why we built 'Pause for Shabbat'",
+      text: `You know how in driver's ed they teach you that when you come to a stop sign you're supposed to stop completely, then roll up, stop again, look both ways, and then go?
+
+But most of us don't actually do that.
+
+Most of us do what's called the rolling stop. You slow down almost all the way, and then you keep going.
+
+In Genesis 2 from the Torah, they first mention Shabbat:
+
+"Vaishbot bayom hashvi'i."
+
+Vaishbot means to stop. To cease. Not the rolling stop.
+
+To cease from doing all the melacha, all the work you do during your normal work week, all the things that cause you stress and anxiety and keep you moving in turbocharged mode.
+
+To come to a complete stop.
+
+That's why we created Pause for Shabbat.
+
+Activate it here, and take some time to pause this weekend.
+
+${oauthUrl}
+
+Best,
+Rabbi Josh Franklin`,
     });
 
     console.log(`OAuth link sent to ${senderEmail}`);
