@@ -30,6 +30,15 @@ const SCOPES = 'https://graph.microsoft.com/User.Read https://graph.microsoft.co
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const resend = new Resend(RESEND_API_KEY);
 
+// --- Microsoft publisher domain verification ---
+app.get('/.well-known/microsoft-identity-association.json', (req, res) => {
+  res.json({
+    associatedApplications: [
+      { applicationId: '2cf0c5b3-12e7-4ecc-9a7f-e76ffeafbf67' },
+    ],
+  });
+});
+
 // --- Step 1: Start OAuth flow ---
 app.get('/start', (req, res) => {
   const hint = req.query.hint ? `&login_hint=${encodeURIComponent(req.query.hint)}` : '';
