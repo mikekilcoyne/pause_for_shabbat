@@ -5,6 +5,15 @@ const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 const { Resend } = require('resend');
 const multer = require('multer');
+const {
+  SET_ADDRESS,
+  STOP_ADDRESS,
+  renderLandingPage,
+  renderPrivacyPage,
+  renderTermsPage,
+  renderConfirmationPage,
+  renderStatusPage,
+} = require('./pages');
 
 const app = express();
 app.use(express.json({
@@ -24,6 +33,8 @@ const {
   RESEND_WEBHOOK_SECRET,
   APP_URL,
   RESEND_FROM_EMAIL,
+  CONTACT_EMAIL,
+  CRON_SECRET,
 } = process.env;
 const TENANT = 'common';
 const SCOPES = 'https://graph.microsoft.com/User.Read https://graph.microsoft.com/MailboxSettings.ReadWrite offline_access';
@@ -55,23 +66,24 @@ function formatDbError(err) {
   return message;
 }
 
-function escapeHtml(value) {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 function getTimezoneConfig(timezone) {
   const map = {
     'Eastern Standard Time': { lat: 40.7128, lng: -74.0060, iana: 'America/New_York' },
     'Central Standard Time': { lat: 41.8781, lng: -87.6298, iana: 'America/Chicago' },
     'Mountain Standard Time': { lat: 39.7392, lng: -104.9903, iana: 'America/Denver' },
     'Pacific Standard Time': { lat: 34.0522, lng: -118.2437, iana: 'America/Los_Angeles' },
+    'US Mountain Standard Time': { lat: 33.4484, lng: -112.0740, iana: 'America/Phoenix' },
+    'Alaskan Standard Time': { lat: 61.2181, lng: -149.9003, iana: 'America/Anchorage' },
+    'Hawaiian Standard Time': { lat: 21.3069, lng: -157.8583, iana: 'Pacific/Honolulu' },
+    'Atlantic Standard Time': { lat: 44.6488, lng: -63.5752, iana: 'America/Halifax' },
     'GMT Standard Time': { lat: 51.5074, lng: -0.1278, iana: 'Europe/London' },
+    'W. Europe Standard Time': { lat: 52.5200, lng: 13.4050, iana: 'Europe/Berlin' },
+    'Romance Standard Time': { lat: 48.8566, lng: 2.3522, iana: 'Europe/Paris' },
     'Israel Standard Time': { lat: 31.7683, lng: 35.2137, iana: 'Asia/Jerusalem' },
+    'South Africa Standard Time': { lat: -26.2041, lng: 28.0473, iana: 'Africa/Johannesburg' },
+    'AUS Eastern Standard Time': { lat: -33.8688, lng: 151.2093, iana: 'Australia/Sydney' },
+    'E. South America Standard Time': { lat: -23.5505, lng: -46.6333, iana: 'America/Sao_Paulo' },
+    'Argentina Standard Time': { lat: -34.6037, lng: -58.3816, iana: 'America/Argentina/Buenos_Aires' },
   };
   return map[timezone] || { lat: 40.7128, lng: -74.0060, iana: 'America/New_York' };
 }
@@ -94,231 +106,6 @@ function buildDefaultReplyMessage(name) {
 -- ${name}`;
 }
 
-function renderConfirmationPage({ email, timezone, start, end, message }) {
-  const subject = encodeURIComponent(`Update my Pause for Shabbat message for ${email}`);
-  const body = encodeURIComponent(`Hi,
-
-I want to update my Pause for Shabbat automatic reply message for ${email}.
-
-Here is the message I want to use:
-
-${message}
-`);
-
-  return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Pause for Shabbat</title>
-    <style>
-      :root {
-        --paper: #f6f1e8;
-        --ink: #22201c;
-        --muted: #756d63;
-        --line: rgba(34, 32, 28, 0.12);
-        --card: rgba(255, 255, 255, 0.82);
-        --accent: #b7652b;
-      }
-
-      * { box-sizing: border-box; }
-
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        padding: 24px;
-        background:
-          radial-gradient(circle at top, rgba(255, 255, 255, 0.85), transparent 36%),
-          linear-gradient(180deg, #fbf7f1 0%, var(--paper) 100%);
-        color: var(--ink);
-        font-family: Georgia, "Times New Roman", serif;
-      }
-
-      .shell {
-        width: min(100%, 760px);
-      }
-
-      .card {
-        background: var(--card);
-        border: 1px solid var(--line);
-        border-radius: 28px;
-        box-shadow: 0 20px 60px rgba(70, 58, 44, 0.08);
-        padding: 28px;
-        text-align: center;
-        backdrop-filter: blur(10px);
-      }
-
-      .eyebrow,
-      .label,
-      .timezone,
-      .fineprint,
-      .button {
-        font-family: "Courier New", Courier, monospace;
-      }
-
-      .eyebrow {
-        color: var(--muted);
-        font-size: 0.95rem;
-        letter-spacing: 0.08em;
-        margin-bottom: 14px;
-      }
-
-      .icon-box {
-        width: 88px;
-        height: 88px;
-        margin: 0 auto 18px;
-        display: grid;
-        place-items: center;
-        border-radius: 24px;
-        border: 1px solid var(--line);
-        background: rgba(255, 255, 255, 0.95);
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
-      }
-
-      .icon-box img {
-        width: 56px;
-        height: 56px;
-        object-fit: contain;
-      }
-
-      h1 {
-        margin: 0;
-        font-size: clamp(2.4rem, 7vw, 4.2rem);
-        line-height: 0.94;
-      }
-
-      .lede {
-        margin: 16px auto 0;
-        max-width: 35rem;
-        color: var(--muted);
-        font-size: 1.05rem;
-        line-height: 1.6;
-      }
-
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 14px;
-        margin-top: 28px;
-      }
-
-      .panel,
-      .message {
-        background: rgba(255, 255, 255, 0.9);
-        border: 1px solid var(--line);
-        border-radius: 24px;
-      }
-
-      .panel {
-        padding: 18px 20px;
-      }
-
-      .label {
-        color: var(--accent);
-        font-size: 0.82rem;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-      }
-
-      .value {
-        margin-top: 10px;
-        font-size: clamp(1.2rem, 3vw, 1.6rem);
-        line-height: 1.25;
-      }
-
-      .timezone {
-        margin-top: 22px;
-        color: var(--muted);
-        font-size: 0.95rem;
-      }
-
-      .message {
-        margin-top: 16px;
-        padding: 22px;
-        text-align: left;
-      }
-
-      .message-text {
-        margin: 14px 0 0;
-        white-space: pre-wrap;
-        font-size: 1.08rem;
-        line-height: 1.7;
-      }
-
-      .actions {
-        margin-top: 22px;
-        display: flex;
-        justify-content: center;
-      }
-
-      .button {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: 13px 22px;
-        border-radius: 999px;
-        border: 1px solid rgba(34, 32, 28, 0.2);
-        color: var(--ink);
-        text-decoration: none;
-        background: rgba(255, 255, 255, 0.92);
-        font-size: 0.98rem;
-      }
-
-      .fineprint {
-        margin-top: 14px;
-        color: var(--muted);
-        font-size: 0.84rem;
-      }
-
-      @media (max-width: 640px) {
-        body { padding: 16px; }
-        .card { padding: 22px 18px; border-radius: 24px; }
-        .grid { grid-template-columns: 1fr; }
-        .message { padding: 18px; }
-      }
-    </style>
-  </head>
-  <body>
-    <main class="shell">
-      <section class="card">
-        <div class="icon-box">
-          <img src="/brand/icon.png" alt="Pause for Shabbat logo" />
-        </div>
-        <div class="eyebrow">PAUSE FOR SHABBAT</div>
-        <h1>Shabbat Mode is Active</h1>
-        <p class="lede">Automatic replies are scheduled for your next Shabbat window. We&apos;ll handle the timing quietly in the background.</p>
-
-        <div class="grid">
-          <div class="panel">
-            <div class="label">Start</div>
-            <div class="value">${escapeHtml(formatDateTime(start, timezone))}</div>
-          </div>
-          <div class="panel">
-            <div class="label">End</div>
-            <div class="value">${escapeHtml(formatDateTime(end, timezone))}</div>
-          </div>
-        </div>
-
-        <div class="timezone">${escapeHtml(email)} · ${escapeHtml(timezone)}</div>
-
-        <section class="message">
-          <div class="label">Default Message</div>
-          <p class="message-text">${escapeHtml(message)}</p>
-        </section>
-
-        <div class="actions">
-          <a class="button" href="mailto:set@pauseforshabbat.com?subject=${subject}&body=${body}">Change Message</a>
-        </div>
-
-        <div class="fineprint">Want a more personal note? Tap the button and send us the wording you want to use. You can always update your auto-responder in your Outlook email settings.</div>
-      </section>
-    </main>
-  </body>
-</html>`;
-}
-
 // --- Microsoft publisher domain verification ---
 app.get('/.well-known/microsoft-identity-association.json', (req, res) => {
   res.json({
@@ -328,9 +115,20 @@ app.get('/.well-known/microsoft-identity-association.json', (req, res) => {
   });
 });
 
-app.get('/brand/icon.png', (req, res) => {
-  res.sendFile(path.join(__dirname, 'assets', '#pause_for_shabbat.png'));
-});
+// --- Brand assets ---
+const sendAsset = (file) => (req, res) => {
+  res.set('Cache-Control', 'public, max-age=86400');
+  res.sendFile(path.join(__dirname, 'assets', file));
+};
+app.get('/brand/icon.png', sendAsset('#pause_for_shabbat.png'));
+app.get('/brand/mark.png', sendAsset('mark-256.png'));
+app.get(['/favicon.png', '/favicon.ico'], sendAsset('favicon-64.png'));
+app.get('/apple-touch-icon.png', sendAsset('apple-touch-icon.png'));
+
+// --- Public pages ---
+app.get('/', (req, res) => res.send(renderLandingPage({ contactEmail: CONTACT_EMAIL })));
+app.get('/privacy', (req, res) => res.send(renderPrivacyPage({ contactEmail: CONTACT_EMAIL })));
+app.get('/terms', (req, res) => res.send(renderTermsPage({ contactEmail: CONTACT_EMAIL })));
 
 // --- Step 1: Start OAuth flow ---
 app.get('/start', (req, res) => {
@@ -351,7 +149,18 @@ app.get('/start', (req, res) => {
 app.get('/auth/callback', async (req, res) => {
   const { code, error } = req.query;
 
-  if (error) return res.send(`OAuth error: ${error}`);
+  if (error) {
+    console.error('OAuth error:', error, req.query.error_description);
+    const needsAdmin = /consent|admin/i.test(`${error} ${req.query.error_description || ''}`);
+    return res.status(400).send(renderStatusPage({
+      title: needsAdmin ? 'Your organization needs to approve this' : 'Setup was cancelled',
+      message: needsAdmin
+        ? 'Your Microsoft 365 organization requires an administrator to approve new apps. Ask your IT team to approve Pause for Shabbat, then try again.'
+        : 'We didn\'t get permission from Microsoft, so nothing was changed. You can try again whenever you like.',
+      primary: { href: '/start', label: 'Try again' },
+    }));
+  }
+  if (!code) return res.redirect('/');
 
   try {
     // Exchange code for tokens
@@ -383,6 +192,7 @@ app.get('/auth/callback', async (req, res) => {
     console.log('Got mailboxSettings:', JSON.stringify(mailboxRes.data, null, 2));
 
     const email = meRes.data.mail || meRes.data.userPrincipalName;
+    const displayName = meRes.data.displayName || email;
     const timezone = mailboxRes.data.timeZone;
 
     const userRecord = { email, timezone, access_token, refresh_token, active: true };
@@ -394,21 +204,29 @@ app.get('/auth/callback', async (req, res) => {
     console.log(`Saved to DB: ${email} | Timezone: ${timezone}`);
 
     const { start, end } = await getNextShabbatWindow(timezone);
-    const message = buildDefaultReplyMessage(email);
+    const message = buildDefaultReplyMessage(displayName);
     await setAutoResponder(access_token, start, end, email, message);
     console.log(`Initial Shabbat window scheduled for ${email}: ${start} → ${end}`);
 
-    res.send(renderConfirmationPage({ email, timezone, start, end, message }));
+    res.send(renderConfirmationPage({
+      email, timezone, start, end, message,
+      formatTime: (iso) => formatDateTime(iso, timezone),
+    }));
   } catch (err) {
     const detail = formatDbError(err);
     console.error('FULL ERROR:', JSON.stringify(detail, null, 2));
     console.error('STATUS:', err.response?.status);
-    res.status(500).send(`Error: ${detail}`);
+    res.status(500).send(renderStatusPage({
+      title: 'Something went wrong',
+      message: 'We couldn\'t finish setting up your Shabbat reply. Please try again in a minute.',
+      primary: { href: '/start', label: 'Try again' },
+    }));
   }
 });
 
-// --- Step 3: Manually trigger scheduling ---
+// --- Step 3: Manually trigger scheduling (admin only: /trigger?email=...&key=CRON_SECRET) ---
 app.get('/trigger', async (req, res) => {
+  if (!CRON_SECRET || req.query.key !== CRON_SECRET) return res.status(401).send('Unauthorized');
   const { email } = req.query;
   const { data: user, error } = await supabase.from('users').select('*').eq('email', email).single();
 
@@ -431,6 +249,13 @@ app.get('/trigger', async (req, res) => {
 });
 
 // --- POST /webhook/inbound: receives inbound email from SendGrid Inbound Parse ---
+function isAutoGenerated({ subject = '', headers = '' }) {
+  if (/^auto-submitted:\s*(?!no\b)/im.test(headers)) return true;
+  if (/^(x-autoreply|x-autorespond|x-auto-response-suppress):/im.test(headers)) return true;
+  if (/^precedence:\s*(bulk|junk|auto_reply)/im.test(headers)) return true;
+  return /^(automatic reply|auto(matic)?[- ]?reply|auto:|out of office)/i.test(subject.trim());
+}
+
 app.post('/webhook/inbound', multer().none(), async (req, res) => {
   try {
     const rawSender = req.body.from || '';
@@ -440,6 +265,22 @@ app.post('/webhook/inbound', multer().none(), async (req, res) => {
     if (!senderEmail) {
       console.error('Inbound webhook missing sender email');
       return res.status(400).send('Missing sender email');
+    }
+
+    // Don't answer out-of-office replies (including our own users' Shabbat replies).
+    if (isAutoGenerated(req.body)) {
+      console.log(`Ignoring auto-generated inbound from: ${senderEmail}`);
+      return res.sendStatus(200);
+    }
+
+    const recipients = `${req.body.to || ''} ${req.body.envelope || ''}`.toLowerCase();
+    if (recipients.includes(STOP_ADDRESS)) {
+      await handleStopRequest(senderEmail);
+      return res.sendStatus(200);
+    }
+    if (!recipients.includes(SET_ADDRESS)) {
+      console.log(`Ignoring inbound to unrouted address from ${senderEmail}: ${req.body.to}`);
+      return res.sendStatus(200);
     }
 
     console.log(`Inbound setup request from: ${senderEmail}`);
@@ -486,22 +327,47 @@ Rabbi Josh Franklin`,
   }
 });
 
+// --- Stop: cancel the upcoming reply and delete the user's record ---
+async function handleStopRequest(senderEmail) {
+  console.log(`Stop request from: ${senderEmail}`);
+  const { data: user } = await supabase.from('users').select('*').ilike('email', senderEmail.replace(/[\\%_]/g, '\\$&')).maybeSingle();
+
+  if (user) {
+    try {
+      const accessToken = await refreshAccessToken(user);
+      await cancelScheduledAutoResponder(accessToken);
+    } catch (err) {
+      // Token may already be revoked; deleting the record is what matters.
+      console.error(`Could not cancel reply for ${user.email}:`, getErrorMessage(err));
+    }
+    const { error } = await supabase.from('users').delete().eq('email', user.email);
+    if (error) throw new Error(`DB error: ${formatDbError(error)}`);
+    console.log(`Deleted user: ${user.email}`);
+  }
+
+  await resend.emails.send({
+    from: RESEND_FROM_EMAIL || 'Pause for Shabbat <onboarding@resend.dev>',
+    to: senderEmail,
+    subject: 'Pause for Shabbat is off',
+    text: user
+      ? `Pause for Shabbat is now off for ${user.email}. We've cancelled your upcoming Shabbat automatic reply and deleted your information.
+
+If you'd like to come back, just email ${SET_ADDRESS}.
+
+Shabbat shalom.`
+      : `We couldn't find a Pause for Shabbat account for ${senderEmail}, so there was nothing to turn off.
+
+If you connected a different address, send this email from that address instead.`,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function getNextShabbatWindow(timezone) {
-  const coords = getTimezoneConfig(timezone);
-
-  const now = new Date();
-  const dayOfWeek = now.getDay(); // 0=Sun ... 5=Fri ... 6=Sat
-  const daysUntilFriday = ((5 - dayOfWeek + 7) % 7) || 7;
-
-  const friday = new Date(now);
-  friday.setDate(now.getDate() + daysUntilFriday);
-
+async function getShabbatWindowForFriday(friday, coords) {
   const saturday = new Date(friday);
-  saturday.setDate(friday.getDate() + 1);
+  saturday.setUTCDate(friday.getUTCDate() + 1);
 
   const fridayDate = friday.toISOString().split('T')[0];
   const saturdayDate = saturday.toISOString().split('T')[0];
@@ -517,11 +383,48 @@ async function getNextShabbatWindow(timezone) {
   return { start: fridaySunset, end: nightfall.toISOString() };
 }
 
+// The current Shabbat if it hasn't ended yet (so a Friday or Saturday signup
+// takes effect right away), otherwise the coming one.
+async function getNextShabbatWindow(timezone) {
+  const coords = getTimezoneConfig(timezone);
+
+  const now = new Date();
+  const dayOfWeek = now.getUTCDay(); // 0=Sun ... 5=Fri ... 6=Sat
+  const daysUntilFriday = dayOfWeek === 6 ? -1 : (5 - dayOfWeek + 7) % 7;
+
+  const friday = new Date(now);
+  friday.setUTCDate(now.getUTCDate() + daysUntilFriday);
+
+  const window = await getShabbatWindowForFriday(friday, coords);
+  if (new Date(window.end) > now) return window;
+
+  friday.setUTCDate(friday.getUTCDate() + 7);
+  return getShabbatWindowForFriday(friday, coords);
+}
+
 async function getSunsetUTC(lat, lng, date) {
   const res = await axios.get('https://api.sunrise-sunset.org/json', {
     params: { lat, lng, date, formatted: 0 },
   });
   return res.data.results.sunset; // already in UTC ISO format
+}
+
+async function getAutoReplySettings(accessToken) {
+  const res = await axios.get('https://graph.microsoft.com/v1.0/me/mailboxSettings/automaticRepliesSetting', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  return res.data;
+}
+
+async function cancelScheduledAutoResponder(accessToken) {
+  const current = await getAutoReplySettings(accessToken);
+  // Only touch a scheduled reply; leave a manually enabled out-of-office alone.
+  if (current.status !== 'scheduled') return;
+  await axios.patch(
+    'https://graph.microsoft.com/v1.0/me/mailboxSettings',
+    { automaticRepliesSetting: { status: 'disabled' } },
+    { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+  );
 }
 
 async function setAutoResponder(accessToken, startISO, endISO, name, message = buildDefaultReplyMessage(name)) {
@@ -585,7 +488,10 @@ async function refreshAccessToken(user) {
 async function scheduleShabbatForUser(user) {
   const accessToken = await refreshAccessToken(user);
   const { start, end } = await getNextShabbatWindow(user.timezone);
-  await setAutoResponder(accessToken, start, end, user.email);
+  // Keep whatever wording the user has in Outlook; only move the window.
+  const current = await getAutoReplySettings(accessToken);
+  const message = current.externalReplyMessage || buildDefaultReplyMessage(user.email);
+  await setAutoResponder(accessToken, start, end, user.email, message);
   console.log(`Scheduled Shabbat for ${user.email}: ${start} → ${end}`);
 }
 
@@ -595,7 +501,7 @@ async function scheduleShabbatForUser(user) {
 // ---------------------------------------------------------------------------
 
 app.get('/api/cron', async (req, res) => {
-  if (req.headers['authorization'] !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!CRON_SECRET || req.headers['authorization'] !== `Bearer ${CRON_SECRET}`) {
     return res.status(401).send('Unauthorized');
   }
 
