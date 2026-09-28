@@ -1,7 +1,7 @@
 # Pause for Shabbat: Agent Handoff & Status
 
 > Read this first. It records what's done, what's blocked, and what to do next.
-> Last updated: 2026-09-28. Update the **Status** and **Next up** sections when you make progress.
+> Last updated: 2026-09-28 (blockers 1–2 cleared). Update the **Status** and **Next up** sections when you make progress.
 
 ## What this is
 A small Node/Express app on Vercel that schedules an **Outlook out-of-office reply every Shabbat**, from Friday sunset to Saturday nightfall (sunset + 42 min). A user emails `set@pauseforshabbat.com`, gets back a letter from Rabbi Josh Franklin with a Microsoft sign-in link, clicks once, and they're done. A Vercel cron reschedules everyone every Thursday.
@@ -60,9 +60,9 @@ All accounts currently belong to Mike Kilcoyne (mk@yellowsatinjacket.com). Whoev
 - Supabase project restored (2026-09-27). `users` table created with **RLS on and no policies**, which was verified: the anon key can't read or write.
 
 ### ⛔ Stalled / blocked (needs a human with account access)
-1. **Vercel `SUPABASE_KEY` must be the `service_role` key.** Because the table has RLS on, the anon key can't save users, and every signup fails at the "save" step. Get the key from Supabase → Project Settings → API Keys (`service_role` / secret) and set it in Vercel → Settings → Environment Variables, then redeploy. *Status: not yet confirmed done.*
-2. **`RESEND_FROM_EMAIL` in Vercel** should be `Pause for Shabbat <set@pauseforshabbat.com>`. Also check that the domain shows as **Verified** in Resend. If it isn't set, mail goes out from `onboarding@resend.dev`, which Resend only delivers to the account owner. *Status: unconfirmed.*
-3. **No end-to-end test has ever passed in production.** See the test script below. This is also where Outlook troubleshooting starts.
+1. ~~Vercel `SUPABASE_KEY` must be the `service_role` key~~. ✅ Done 2026-09-28 and redeployed. The key must stay service_role, because RLS blocks the anon key.
+2. ~~`RESEND_FROM_EMAIL` in Vercel~~. ✅ Set to `Pause for Shabbat <set@pauseforshabbat.com>`. The Azure client secret was checked on 2026-09-28 and has not expired. *Still unchecked: whether the domain shows as "Verified" in the Resend dashboard. The local Resend key is send-only, so an agent can't check it.*
+3. **No end-to-end test has ever passed in production. ← This is where things are stalled now.** It needs someone with an Outlook/M365 mailbox, most likely Josh's jcoh.org account. See the test script below. This is also where Outlook troubleshooting starts.
 4. **Supabase free tier pauses after about a week of inactivity**, and a weekly cron may not be enough to keep it active. Pick one fix: upgrade to Pro, or change `vercel.json` to run the cron daily and have `/api/cron` run a cheap query every day but schedule only on Thursday. *Status: undecided.*
 
 ### 🟡 Recommended, not blocking
@@ -81,7 +81,7 @@ All accounts currently belong to Mike Kilcoyne (mk@yellowsatinjacket.com). Whoev
 5. Email `stop@pauseforshabbat.com`. You should get an "is off" email, the row should be deleted, and automatic replies should be disabled.
 
 ## Next up (in order)
-1. Clear blockers 1–2, then run the E2E test above and fix whatever breaks. **(Outlook troubleshooting)**
+1. Run the E2E test above and fix whatever breaks. **(Outlook troubleshooting)**
 2. Decide on the Supabase keep-awake fix (blocker 4).
 3. **Gmail support (not started).** Rough plan:
    - Create a Google Cloud OAuth client. Scope `https://www.googleapis.com/auth/gmail.settings.basic`, a sensitive scope that requires Google's OAuth app verification before public use.
