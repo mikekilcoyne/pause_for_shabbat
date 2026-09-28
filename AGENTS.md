@@ -1,7 +1,40 @@
 # Pause for Shabbat: Agent Handoff & Status
 
 > Read this first. It records what's done, what's blocked, and what to do next.
-> Last updated: 2026-09-28 (blockers 1–2 cleared). Update the **Status** and **Next up** sections when you make progress.
+> Last updated: 2026-09-28. **Start with Josh's checklist below**, and tick items off as they're done.
+
+## ✅ Josh's checklist: remaining tasks
+Work top to bottom and tick items off here as they're done. Each item says **who** can do it:
+**Josh** means anyone with a mailbox; **Access** means someone logged into that service (Mike, or Josh after Mike adds him); **Agent** means Claude or Codex working in this repo.
+
+- [ ] **0. Get access (Access).** Everything below marked *Access* runs through Mike's accounts. Mike either adds Josh to GitHub (collaborator), Vercel, Supabase, Azure (Entra ID), Resend, and SendGrid, or does those steps himself.
+- [ ] **1. End-to-end test from jcoh.org (Josh).** Follow the *End-to-end test* section below using Josh's JCOH Microsoft 365 account. Write down exactly what happens at each step.
+  - Progress so far: on 2026-09-28 Mike reached the Microsoft consent screen with a personal account (`pauseforshabbat@outlook.com`), so the inbound email and OAuth link work. *Result after "Accept": not yet recorded.*
+  - If Josh sees **"Need admin approval"**, JCOH's Microsoft 365 organization only lets users approve apps from verified publishers. Fix now: JCOH's IT admin approves Pause for Shabbat once for the whole organization in the **Microsoft Entra admin center → Enterprise applications** (or Admin consent requests). Long-term fix: item 3.
+- [ ] **2. Add links and logo to the Microsoft consent screen (Access, ~2 min).** Azure portal → Entra ID → App registrations → *Pause for Shabbat* → **Branding & properties**:
+  - Home page: `https://pauseforshabbat.com`
+  - Terms of service: `https://pauseforshabbat.com/terms`
+  - Privacy statement: `https://pauseforshabbat.com/privacy`
+  - Logo: upload `assets/mark-256.png`
+  - This removes the "publisher has not provided links to their terms" line from the consent screen.
+- [ ] **3. 📌 NOTE: Publisher verification, which removes the "unverified" badge (Access, takes days).** Personal outlook.com users can approve the app today. Many **work/school Microsoft 365 organizations only allow verified publishers**, so this matters for congregations and workplaces. Steps:
+  1. Join the free **Microsoft AI Cloud Partner Program** (Partner Center). It requires business verification of a legal entity, which usually takes a few days.
+  2. Use an email address on a domain that is either the app's publisher domain (`pauseforshabbat.com`) or a DNS-verified custom domain in the Azure directory that owns the app.
+     ⚠️ **Catch:** all mail to `@pauseforshabbat.com` goes to the signup webhook, so Microsoft's verification email would never arrive there. Realistic options: verify as **Yellow Satin Jacket** (add `yellowsatinjacket.com` as a verified domain in the Entra tenant), or set up a real mailbox or forward on pauseforshabbat.com first (for example, route one address to a person instead of SendGrid).
+  3. Azure → App registrations → Pause for Shabbat → Branding & properties → **Publisher verification**. Enter the Partner (MPN) ID and verify.
+  - Decide who the publisher is (Yellow Satin Jacket or JCOH) before starting. Using JCOH would need JCOH's own partner account linked to the tenant where the app lives.
+- [ ] **4. Confirm the Resend domain is verified (Access).** In the Resend dashboard under Domains, `pauseforshabbat.com` should say **Verified**. If the onboarding email in item 1 arrived, it is.
+- [ ] **5. Keep Supabase from pausing (decision, then Access or Agent).** The free tier pauses after about a week without traffic, which already happened once, and every signup fails while it's paused. Pick one:
+  - Upgrade the Supabase project to Pro (Access), **or**
+  - Agent change: set `vercel.json` cron to daily (`0 23 * * *`), have `/api/cron` run a cheap `select` every day but schedule only when `new Date().getUTCDay() === 4`, then push.
+- [ ] **6. Optional: contact address (Access).** Set a `CONTACT_EMAIL` env var in Vercel and redeploy to add a Contact link to the site and legal pages. Mail to any address on the domain other than set@ and stop@ is currently dropped.
+- [ ] **7. Gmail support (Agent + Access, not started).** Do this only after item 1 passes. Plan:
+   - Create a Google Cloud OAuth client. Scope `https://www.googleapis.com/auth/gmail.settings.basic`, a sensitive scope that requires Google's OAuth app verification before public use.
+   - Call `PUT gmail/v1/users/me/settings/vacation` with `enableAutoReply: true`, `startTime`/`endTime` (epoch ms), `responseSubject`, `responseBodyPlainText`.
+   - Add a `provider` column (`'microsoft' | 'google'`) to `users`, plus `/start/google` and `/auth/google/callback`. Branch `scheduleShabbatForUser` and token refresh by provider.
+   - The inbound flow could check the sender's MX records (Google vs `*.mail.protection.outlook.com`) to decide which link to send, or send both.
+   - Update the landing and privacy copy, which currently say Outlook-only.
+- [ ] **8. Optional: more time zones (Agent).** `getTimezoneConfig` in `index.js` covers about 19 Windows time zones, and unknown zones fall back to NYC sunset. Add any zones real users report.
 
 ## What this is
 A small Node/Express app on Vercel that schedules an **Outlook out-of-office reply every Shabbat**, from Friday sunset to Saturday nightfall (sunset + 42 min). A user emails `set@pauseforshabbat.com`, gets back a letter from Rabbi Josh Franklin with a Microsoft sign-in link, clicks once, and they're done. A Vercel cron reschedules everyone every Thursday.
@@ -58,37 +91,18 @@ All accounts currently belong to Mike Kilcoyne (mk@yellowsatinjacket.com). Whoev
 - `/trigger` requires the secret. OAuth error output is escaped.
 - DNS for SendGrid inbound and Resend outbound.
 - Supabase project restored (2026-09-27). `users` table created with **RLS on and no policies**, which was verified: the anon key can't read or write.
-
-### ⛔ Stalled / blocked (needs a human with account access)
-1. ~~Vercel `SUPABASE_KEY` must be the `service_role` key~~. ✅ Done 2026-09-28 and redeployed. The key must stay service_role, because RLS blocks the anon key.
-2. ~~`RESEND_FROM_EMAIL` in Vercel~~. ✅ Set to `Pause for Shabbat <set@pauseforshabbat.com>`. The Azure client secret was checked on 2026-09-28 and has not expired. *Still unchecked: whether the domain shows as "Verified" in the Resend dashboard. The local Resend key is send-only, so an agent can't check it.*
-3. **No end-to-end test has ever passed in production. ← This is where things are stalled now.** It needs someone with an Outlook/M365 mailbox, most likely Josh's jcoh.org account. See the test script below. This is also where Outlook troubleshooting starts.
-4. **Supabase free tier pauses after about a week of inactivity**, and a weekly cron may not be enough to keep it active. Pick one fix: upgrade to Pro, or change `vercel.json` to run the cron daily and have `/api/cron` run a cheap query every day but schedule only on Thursday. *Status: undecided.*
-
-### 🟡 Recommended, not blocking
-- Azure → App registrations → **Branding & properties**: set the Home page to `https://pauseforshabbat.com`, Terms to `/terms`, Privacy to `/privacy`, and upload `assets/mark-256.png`. Consider **publisher verification**, because unverified multi-tenant apps show an "unverified" warning and many M365 orgs block them.
-- Set `CONTACT_EMAIL`. Mail to any address on the domain other than set@ and stop@ is dropped.
-- Timezone → location mapping (`getTimezoneConfig` in `index.js`) covers about 19 Windows time zones. Unknown zones fall back to NYC.
+- Vercel env set on 2026-09-28: `SUPABASE_KEY` is the **service_role** key (it must stay that way, because RLS blocks the anon key), and `RESEND_FROM_EMAIL` is `Pause for Shabbat <set@pauseforshabbat.com>`. The Azure client secret was checked and has not expired.
+- Inbound email and the OAuth link work in production: a test with a personal outlook.com account reached the Microsoft consent screen on 2026-09-28.
 
 ## End-to-end test (Outlook)
 1. From an Outlook/M365 mailbox, email `set@pauseforshabbat.com`. The onboarding letter should arrive within seconds.
    - If it doesn't, check SendGrid → Activity / Inbound Parse, the Vercel function logs for `POST /webhook/inbound`, and Resend → Logs.
 2. Click the link, sign in, and approve. You should land on the **"You're all set."** page showing start and end times.
-   - A 500 with "Something went wrong" usually means blocker 1 (wrong Supabase key). Check the Vercel logs for `DB error`.
+   - A 500 with "Something went wrong" usually means the database is paused or the wrong Supabase key is set. Check the Vercel logs for `DB error`.
    - The "organization needs to approve this" page means the tenant requires admin consent.
 3. Outlook → Settings → Mail → Automatic replies should show **scheduled** with that window.
 4. Supabase → Table Editor → `users` should have one row.
 5. Email `stop@pauseforshabbat.com`. You should get an "is off" email, the row should be deleted, and automatic replies should be disabled.
-
-## Next up (in order)
-1. Run the E2E test above and fix whatever breaks. **(Outlook troubleshooting)**
-2. Decide on the Supabase keep-awake fix (blocker 4).
-3. **Gmail support (not started).** Rough plan:
-   - Create a Google Cloud OAuth client. Scope `https://www.googleapis.com/auth/gmail.settings.basic`, a sensitive scope that requires Google's OAuth app verification before public use.
-   - Call `PUT gmail/v1/users/me/settings/vacation` with `enableAutoReply: true`, `startTime`/`endTime` (epoch ms), `responseSubject`, `responseBodyPlainText`.
-   - Add a `provider` column (`'microsoft' | 'google'`) to `users`, plus `/start/google` and `/auth/google/callback`. Branch `scheduleShabbatForUser` and token refresh by provider.
-   - The inbound flow could check the sender's MX records (Google vs `*.mail.protection.outlook.com`) to decide which link to send, or send both.
-   - Update the landing and privacy copy, which currently say Outlook-only.
 
 ## Run locally
 ```bash
